@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+import { getToken } from "next-auth/jwt"
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const response = NextResponse.next()
 
   // Add security headers
@@ -9,6 +10,22 @@ export function middleware(request: NextRequest) {
   response.headers.set("X-Content-Type-Options", "nosniff")
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin")
   response.headers.set("X-XSS-Protection", "1; mode=block")
+
+  const adminPaths = ["/admin"]
+  const isAdminPath = adminPaths.some((path) => request.nextUrl.pathname.startsWith(path))
+
+  if (isAdminPath) {
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+
+    if (!token) {
+      return NextResponse.redirect(new URL("/auth/login", request.url))
+    }
+
+    // Check if user has admin role
+    if (token.role !== "admin") {
+      return NextResponse.redirect(new URL("/dashboard", request.url))
+    }
+  }
 
   // Check if path requires authentication
   const protectedPaths = [
@@ -25,8 +42,7 @@ export function middleware(request: NextRequest) {
   const isProtectedPath = protectedPaths.some((path) => request.nextUrl.pathname.startsWith(path))
 
   if (isProtectedPath) {
-    const token =
-      request.cookies.get("next-auth.session-token") || request.cookies.get("__Secure-next-auth.session-token")
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
 
     if (!token) {
       return NextResponse.redirect(new URL("/auth/login", request.url))
@@ -46,5 +62,6 @@ export const config = {
     "/profile/:path*",
     "/dashboard/:path*",
     "/deposit/:path*",
+    "/admin/:path*", // Added admin path to matcher
   ],
 }
